@@ -1,0 +1,297 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Scalable website
+
+Parameters:
+  UserName:
+    Type: String
+    Description: User Name
+    Default: user1
+  InstanceType:
+    Type: String
+    Description: Instance Type
+    AllowedValues:
+      - t2.micro
+      - t2.medium
+    Default: t2.micro
+  DBAdminUser:
+    Description: DB Admin User
+    Type: String
+  DBAdminPassword:
+    Description: DB Admin Password
+    Type: String
+    MinLength: 8
+    NoEcho: true
+  AmiId:
+    Type: String
+    Description: AMI ID
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      zone1: us-east-1a
+      zone2: us-east-1b
+    ap-northeast-1:
+      zone1: ap-northeast-1a
+      zone2: ap-northeast-1c
+
+Resources:
+
+  ###############
+  # VPC         #
+  ###############
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [handson, !Ref UserName]]
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.0.0/24
+      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", zone1]
+      Tags:
+        - Key: Name
+          Value: パブリックサブネット-1a
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", zone2]
+      Tags:
+        - Key: Name
+          Value: パブリックサブネット-1c
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", zone1]
+      Tags:
+        - Key: Name
+          Value: プライベートサブネット-1a
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", zone2]
+      Tags:
+        - Key: Name
+          Value: プライベートサブネット-1c
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  RouteTablePublic:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  RoutePublic1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTablePublic
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  AssociateRouteTablePublic1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTablePublic
+      SubnetId: !Ref PublicSubnet1
+  AssociateRouteTablePublic2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTablePublic
+      SubnetId: !Ref PublicSubnet2
+  RouteTablePrivate1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  AssociateRouteTablePrivate1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTablePrivate1
+      SubnetId: !Ref PrivateSubnet1  
+  RouteTablePrivate2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  AssociateRouteTablePrivate2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTablePrivate2
+      SubnetId: !Ref PrivateSubnet2
+
+  ###############
+  # EC2         #
+  ###############
+  Ec2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EC2 securitygroup
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - SourceSecurityGroupId: !Ref ElbSecurityGroup
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      EbsOptimized: false
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            Encrypted: false
+            DeleteOnTermination: true
+            Iops: 3000
+            VolumeSize: 16
+            VolumeType: gp3
+      NetworkInterfaces:
+        - SubnetId: !Ref PublicSubnet1
+          AssociatePublicIpAddress: true
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref Ec2SecurityGroup
+      PrivateDnsNameOptions:
+        HostnameType: ip-name
+        EnableResourceNameDnsARecord: false
+        EnableResourceNameDnsAAAARecord: false
+      Tags:
+        - Key: Name
+          Value: !Sub webserver#1-${UserName}
+  EC2Instance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      EbsOptimized: false
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            Encrypted: false
+            DeleteOnTermination: true
+            Iops: 3000
+            VolumeSize: 16
+            VolumeType: gp3
+      NetworkInterfaces:
+        - SubnetId: !Ref PublicSubnet2
+          AssociatePublicIpAddress: true
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref Ec2SecurityGroup
+      PrivateDnsNameOptions:
+        HostnameType: ip-name
+        EnableResourceNameDnsARecord: false
+        EnableResourceNameDnsAAAARecord: false
+      Tags:
+        - Key: Name
+          Value: !Sub webserver#2-${UserName}
+
+
+  ###############
+  # RDS         #
+  ###############
+  RdsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS for MySQL
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref Ec2SecurityGroup
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+  RdsDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: RDS for MySQL
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+  RdsDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: MySQL
+      EngineVersion: 8.0.33
+      MasterUsername: !Ref DBAdminUser
+      MasterUserPassword: !Ref DBAdminPassword
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: "20"
+      DBSubnetGroupName: !Ref RdsDBSubnetGroup
+      PubliclyAccessible: false
+      VPCSecurityGroups:
+        - !Ref RdsSecurityGroup
+      DBName: wordpress
+
+  #############
+  # ELB
+  #############
+  ElbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: elb
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+  ElbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      TargetType: instance
+      Protocol: HTTP
+      Port: 80
+      VpcId: !Ref VPC
+      ProtocolVersion: HTTP1
+      HealthCheckEnabled: true
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /wp-includes/images/blank.gif
+      Targets:
+        - Id: !Ref EC2Instance
+        - Id: !Ref EC2Instance2
+  Elb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      SecurityGroups:
+        - !Ref ElbSecurityGroup
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+  ElbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Elb
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+          - Type: forward
+            TargetGroupArn: !Ref ElbTargetGroup
+
+Outputs:
+  InstanceID:
+    Description: The Instance ID
+    Value: !Ref EC2Instance
+  PublicIp:
+    Description: EC2 Public IP
+    Value: !GetAtt EC2Instance.PublicIp
+  RdsDomainName:
+    Value: !GetAtt [RdsDBInstance, Endpoint.Address]
+  ElbDomainName:
+    Value: !Join ['', ['http://', !GetAtt [Elb, DNSName]]]
+
